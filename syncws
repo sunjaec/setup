@@ -1,0 +1,152 @@
+#!/usr/bin/python
+
+# This script was written to sync contents of a workspace with a remote workspace.
+# This works by having the user define location of workspaces in "remote.ws" file, which should contain
+# a single text line describing the remote workspace. For example:
+#
+# schong.desktop.amazon.com:/home/schong/workspace/be_python
+#
+# Each package can have its own "remote.ws", or you can put it at the top of the workspace. More
+# specific "remote.ws" will win. 
+#
+# When run in a package directory, it will sync just the package. When invoked with "all" argument,
+# it will sync all packages in the workspace.
+#
+
+import os
+import sys
+
+class bcolors:
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+
+class Options:
+    def __init__(self) :
+        self.Pull = False
+        self.All  = False
+
+def sync_package(package_name, source, pull = False) :
+
+    source_file_dir = os.path.join(source, "src/%s" % (package_name))
+    dest = get_remote_ws(source_file_dir)
+
+    if dest == None :
+        print bcolors.WARNING
+        print "Cannot determine remote workspace for %s" % (package_name)
+        print bcolors.ENDC
+        return
+
+    if package_name == None or source == None or dest == None :
+        print bcolors.FAIL
+        print "Cannot sync package %s - %s ==> %s" % (package_name, source, dest)
+        print bcolors.ENDC
+        return
+    else :
+        if not pull :
+            print bcolors.OKGREEN
+            print "Syncing (pushing) %s - %s ==> %s" % (package_name, source, dest)
+            print bcolors.ENDC
+
+            source_location = "%s/src/%s/" % (source, package_name)
+            dest_location   = "%s/src/%s" % (dest, package_name)
+        else :
+
+            print bcolors.OKGREEN
+            print "Syncing (pulling) %s - %s ==> %s" % (package_name, dest, source)
+            print bcolors.ENDC
+
+            source_location = "%s/src/%s/" % (dest, package_name)
+            dest_location   = "%s/src/%s" % (source, package_name)
+
+        command = "rsync -az --no-links %s %s" % (source_location, dest_location)
+        os.system(command)
+
+def get_remote_ws(workspace_dir) :
+
+    current_dir = workspace_dir
+    remote_ws_file = None
+
+    while True:
+        remote_ws_file = os.path.join(current_dir, "remote.ws")
+        if os.path.isfile(remote_ws_file) :
+            f = open(remote_ws_file) 
+            remote_ws = f.readline().strip()
+            f.close()
+            return remote_ws
+        else:
+            print "%s is not a file." % (remote_ws_file)
+
+        current_dir = os.path.dirname(current_dir)
+        if current_dir == "/" :
+            break
+
+    return None
+
+def sync_with_remote_ws(opts) :
+
+    current_dir = os.getcwd()
+
+    package_name = None
+    workspace_dir = None
+    remote_ws = None
+
+    while True :
+        if os.path.exists(os.path.join(current_dir, ".git")) :
+            package_name = os.path.basename(current_dir)
+
+        if os.path.exists(os.path.join(current_dir, "packageInfo")) :
+            workspace_dir = current_dir
+            break
+
+        current_dir = os.path.dirname(current_dir)
+        if current_dir == "/" :
+            break
+
+    sync_package(package_name, workspace_dir, opts.Pull)
+
+
+def sync_all_packages(opts) :
+
+    current_dir = os.getcwd()
+
+    workspace_dir = None
+
+    while True :
+        if os.path.exists(os.path.join(current_dir, "packageInfo")) :
+            workspace_dir = current_dir
+            break
+        else :
+            current_dir = os.path.dirname(current_dir)
+
+    if workspace_dir != None :
+
+        src_dir = os.path.join(workspace_dir, "src")
+
+        for package_name in os.listdir(src_dir) :
+            if os.path.isdir(os.path.join(src_dir, package_name + "/.git")) :
+                sync_package(package_name, workspace_dir, opts.Pull)
+
+
+if __name__ == "__main__" :
+
+    opts = Options()
+    for arg in sys.argv[1:] :
+        if arg == "all" : 
+            opts.All = True
+        elif arg == "pull" : 
+            opts.Pull = True
+        else:
+            print bcolors.FAIL
+            print "Unrecognized option (%s)" % (arg)
+            print bcolors.ENDC
+
+    if opts.All :
+        sync_all_packages(opts) 
+    else:
+        sync_with_remote_ws(opts)
